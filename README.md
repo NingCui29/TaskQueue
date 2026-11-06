@@ -15,6 +15,8 @@
 - 取消与关闭：跟踪在途任务和清理过程，不取消宿主提供的共享作用域。
 - 可替换日志输出端，普通日志异常不改变任务结果。
 
+架构和业务流程见 [架构与流程图](docs/architecture.md)。
+
 ## 依赖接入
 
 当前版本：**0.1.0**。在项目的 `settings.gradle.kts` 中添加仓库：
@@ -68,6 +70,41 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
 }
 ```
+
+### 可选：GitHub Packages
+
+GitHub Packages 是第二条分发渠道，上面的匿名 Maven 仓库继续保留。Packages 的公开 Maven 包下载也需要认证，普通消费者需要自己的 **个人访问令牌（classic）**，至少具有 `read:packages` 权限；不支持匿名下载。规则见 [GitHub 官方文档](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-gradle-registry#authenticating-to-github-packages)。
+
+在用户级 `~/.gradle/gradle.properties` 配置 `gpr.user`（GitHub 用户名）和 `gpr.key`（PAT），或使用环境变量 `GITHUB_ACTOR`、`GITHUB_TOKEN`。不要将凭据写入项目或提交到 Git。选择此渠道时，将匿名仓库配置替换为：
+
+```kotlin
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven("https://maven.pkg.github.com/ningcui29/taskqueue") {
+            content { includeGroup("com.cn.tasks") }
+            credentials {
+                username = providers.gradleProperty("gpr.user")
+                    .orElse(providers.environmentVariable("GITHUB_ACTOR")).orNull
+                password = providers.gradleProperty("gpr.key")
+                    .orElse(providers.environmentVariable("GITHUB_TOKEN")).orNull
+            }
+        }
+    }
+}
+```
+
+Packages 使用新的全小写坐标，因为该服务不接受大写 artifactId。按目标平台只选择一行：
+
+```kotlin
+dependencies {
+    implementation("com.cn.tasks:taskqueue-android:0.1.0") // Android AAR
+    // implementation("com.cn.tasks:taskqueue:0.1.0")     // JVM JAR
+}
+```
+
+**两种渠道不要混用**：匿名 Maven 渠道使用 `TaskQueue` / `TaskQueue-android`，Packages 渠道使用 `taskqueue` / `taskqueue-android`；这些坐标包含相同的类，同时引入会产生重复类。原有大写坐标保持不变。Packages 是否已发布以仓库的 [Packages 页面](https://github.com/NingCui29/TaskQueue/packages) 和发布工作流结果为准。
 
 ## 快速开始
 
@@ -230,5 +267,7 @@ Windows 使用 `gradlew.bat`。构建守护进程固定使用 JDK 17；核心构
 - `maven`：依赖仓库分支，仅存放发布产物及依赖元数据。
 
 发布包包含 JAR、AAR、源码 JAR、POM、Maven 仓库压缩包和 `SHA256SUMS.txt`。依赖包未发布到 Maven Central；请使用本文提供的仓库地址。下载后可使用 `sha256sum -c SHA256SUMS.txt` 核验文件。
+
+可选的 [GitHub Packages 发布工作流](.github/workflows/packages.yml) 支持手动运行和 GitHub Release 发布事件。它先构建并测试，再以 `-PgithubPackages=true` 发布小写坐标，最后通过认证下载远端 POM、JAR/AAR、源码及 JVM 模块元数据，核对坐标与本地产物 SHA-256。未设置该参数时，`releaseBundle` 和文件 Maven 仓库仍使用原有大写坐标。
 
 变更记录见 [CHANGELOG.md](CHANGELOG.md)。许可证：[MIT](LICENSE)。

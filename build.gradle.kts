@@ -10,6 +10,12 @@ plugins {
 group = "com.cn.tasks"
 version = "0.1.0"
 
+// GitHub Packages 的 artifactId 必须小写；默认发布坐标保持现有兼容性。
+val githubPackagesMode = providers.gradleProperty("githubPackages")
+    .map { it.toBooleanStrict() }
+    .orElse(false)
+    .get()
+
 java {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
@@ -56,10 +62,11 @@ publishing {
     publications {
         create<MavenPublication>("library") {
             from(components["java"])
+            if (githubPackagesMode) artifactId = "taskqueue"
         }
         create<MavenPublication>("android") {
             from(components["java"])
-            artifactId = "TaskQueue-android"
+            artifactId = if (githubPackagesMode) "taskqueue-android" else "TaskQueue-android"
             setArtifacts(listOf(androidAar, tasks.named("sourcesJar")))
         }
         withType<MavenPublication>().configureEach {
@@ -88,6 +95,18 @@ publishing {
         maven {
             name = "release"
             url = layout.buildDirectory.dir("maven-repository").get().asFile.toURI()
+        }
+        if (githubPackagesMode) {
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/ningcui29/taskqueue")
+                credentials {
+                    username = providers.gradleProperty("gpr.user")
+                        .orElse(providers.environmentVariable("GITHUB_ACTOR")).orNull
+                    password = providers.gradleProperty("gpr.key")
+                        .orElse(providers.environmentVariable("GITHUB_TOKEN")).orNull
+                }
+            }
         }
     }
 }

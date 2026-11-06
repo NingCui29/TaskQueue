@@ -1,0 +1,169 @@
+name: 发布 GitHub Packages
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: github-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: 构建、发布与远端核验
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: 检出源码
+        # 官方版本：https://github.com/actions/checkout/releases/tag/v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: 配置 JDK 17
+        # 官方版本：https://github.com/actions/setup-java/releases/tag/v6.2.0
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 构建并执行测试
+        run: ./gradlew build --no-build-cache --console=plain
+
+      - name: 发布小写坐标到 GitHub Packages
+        run: ./gradlew publishAllPublicationsToGitHubPackagesRepository -PgithubPackages=true --no-build-cache --console=plain
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 下载已发布文件并核验坐标与 SHA-256
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          base = "https://maven.pkg.github.com/ningcui29/taskqueue/com/cn/tasks"
+          token = os.environ["GITHUB_TOKEN"]
+          actor = os.environ["GITHUB_ACTOR"]
+          authorization = "Basic " + base64.b64encode(f"{actor}:{token}".encode()).decode()
+          output = Path("build/github-packages-verification")
+          output.mkdir(parents=True, exist_ok=True)
+          ns = {"m": "http://maven.apache.org/POM/4.0.0"}
+          report = []
+
+          class SafeRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, request, response, code, message, headers, new_url):
+                  if urllib.parse.urlsplit(new_url).scheme != "https":
+                      raise RuntimeError("拒绝非 HTTPS 下载重定向")
+                  redirected = super().redirect_request(request, response, code, message, headers, new_url)
+                  if redirected is not None and urllib.parse.urlsplit(request.full_url).netloc != urllib.parse.urlsplit(new_url).netloc:
+                      redirected.remove_header("Authorization")
+                  return redirected
+
+          opener = urllib.request.build_opener(SafeRedirect())
+
+          def download(artifact, version, filename):
+              url = f"{base}/{artifact}/{version}/{filename}"
+              for attempt in range(6):
+                  request = urllib.request.Request(url, headers={"Authorization": authorization})
+                  try:
+                      with opener.open(request, timeout=30) as response:
+                          return response.read()
+                  except urllib.error.HTTPError as failure:
+                      if failure.code not in (404, 429, 500, 502, 503, 504) or attempt == 5:
+                          raise RuntimeError(f"下载 {filename} 失败，HTTP {failure.code}") from None
+                  except urllib.error.URLError:
+                      if attempt == 5:
+                          raise RuntimeError(f"下载 {filename} 网络失败") from None
+                  time.sleep(5)
+              raise RuntimeError(f"未能下载 {filename}")
+
+          def verify_file(artifact, version, filename, local_path):
+              data = download(artifact, version, filename)
+              local_data = Path(local_path).read_bytes()
+              expected = hashlib.sha256(local_data).hexdigest()
+              actual = hashlib.sha256(data).hexdigest()
+              if actual != expected:
+                  raise RuntimeError(f"远端 {filename} 与本地产物 SHA-256 不一致")
+              (output / filename).write_bytes(data)
+              report.append({"file": filename, "sha256": actual, "bytes": len(data)})
+              print(f"已核验 {filename}: {actual}")
+              return data
+
+          versions = set()
+          for publication, artifact, extension, archive_name in (
+              ("library", "taskqueue", "jar", "TaskQueue"),
+              ("android", "taskqueue-android", "aar", "TaskQueue-android"),
+          ):
+              local_pom = Path(f"build/publications/{publication}/pom-default.xml")
+              root = ET.fromstring(local_pom.read_bytes())
+              version = root.findtext("m:version", namespaces=ns)
+              if not version or root.findtext("m:groupId", namespaces=ns) != "com.cn.tasks":
+                  raise RuntimeError(f"{publication} 本地 Maven 坐标无效")
+              if root.findtext("m:artifactId", namespaces=ns) != artifact:
+                  raise RuntimeError(f"{publication} 未使用预期小写 artifactId")
+              if (root.findtext("m:packaging", namespaces=ns) or "jar") != extension:
+                  raise RuntimeError(f"{publication} packaging 与发布类型不符")
+              dependencies = root.findall("m:dependencies/m:dependency", ns)
+              if not any(d.findtext("m:groupId", namespaces=ns) == "org.jetbrains.kotlinx"
+                         and d.findtext("m:artifactId", namespaces=ns) in ("kotlinx-coroutines-core", "kotlinx-coroutines-core-jvm")
+                         and d.findtext("m:scope", namespaces=ns) == "compile" for d in dependencies):
+                  raise RuntimeError(f"{publication} 缺少协程传递依赖")
+              versions.add(version)
+              verify_file(artifact, version, f"{artifact}-{version}.pom", local_pom)
+              verify_file(artifact, version, f"{artifact}-{version}.{extension}", f"build/libs/{archive_name}-{version}.{extension}")
+              verify_file(artifact, version, f"{artifact}-{version}-sources.jar", f"build/libs/TaskQueue-{version}-sources.jar")
+              if publication == "library":
+                  metadata = json.loads(verify_file(artifact, version, f"{artifact}-{version}.module", "build/publications/library/module.json"))
+                  component = metadata["component"]
+                  if (component["group"], component["module"], component["version"]) != ("com.cn.tasks", artifact, version):
+                      raise RuntimeError("JVM 模块元数据坐标与 POM 不一致")
+                  referenced_files = set()
+                  for variant in metadata["variants"]:
+                      for entry in variant.get("files", []):
+                          allowed_names = {f"{artifact}-{version}.jar", f"{artifact}-{version}-sources.jar"}
+                          if entry["url"] not in allowed_names:
+                              raise RuntimeError("JVM 模块元数据引用了非预期产物地址")
+                          referenced_files.add(entry["url"])
+                  if referenced_files != {f"{artifact}-{version}.jar", f"{artifact}-{version}-sources.jar"}:
+                      raise RuntimeError("JVM 模块元数据缺少主 JAR 或源码引用")
+          if len(versions) != 1:
+              raise RuntimeError("JVM 与 Android 发布版本不一致")
+          (output / "verification.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          print("两种 Packages 坐标的远端文件与本地产物核验通过。")
+          PY
+
+      - name: 保存发布核验记录
+        # 官方版本：https://github.com/actions/upload-artifact/releases/tag/v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: github-packages-verification
+          path: build/github-packages-verification/verification.json
+          if-no-files-found: error
+
+      - name: 失败时上传测试报告
+        if: failure()
+        # 官方版本：https://github.com/actions/upload-artifact/releases/tag/v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: github-packages-test-reports
+          path: |
+            build/reports/tests/test/
+            build/test-results/test/
+          if-no-files-found: ignore
