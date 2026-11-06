@@ -1,0 +1,116 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "com.cn.tasks",
+    "module": "TaskQueue",
+    "version": "0.1.0",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.13"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.jvm.version": 17,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-coroutines-core",
+          "version": {
+            "requires": "1.8.1"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.1.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "TaskQueue-0.1.0.jar",
+          "url": "TaskQueue-0.1.0.jar",
+          "size": 198633,
+          "sha512": "e33ca2aee84c2c7f6af4e6ca0f071d19b937d6b3f2b93562c25441db988ec350eaa49f5b97da2c28c56a9245f2872bf56fd8ddc9b783353b0675c1020a6931dc",
+          "sha256": "c907210957c11aee902848f7d924730c37dd1168c85abde2c6ee7413a0858d48",
+          "sha1": "3961db41362d79fc5e90a32abde6a73b883d7e88",
+          "md5": "71db41210c16318196c43c5e33dd4952"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.jvm.version": 17,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-coroutines-core",
+          "version": {
+            "requires": "1.8.1"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.1.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "TaskQueue-0.1.0.jar",
+          "url": "TaskQueue-0.1.0.jar",
+          "size": 198633,
+          "sha512": "e33ca2aee84c2c7f6af4e6ca0f071d19b937d6b3f2b93562c25441db988ec350eaa49f5b97da2c28c56a9245f2872bf56fd8ddc9b783353b0675c1020a6931dc",
+          "sha256": "c907210957c11aee902848f7d924730c37dd1168c85abde2c6ee7413a0858d48",
+          "sha1": "3961db41362d79fc5e90a32abde6a73b883d7e88",
+          "md5": "71db41210c16318196c43c5e33dd4952"
+        }
+      ]
+    },
+    {
+      "name": "sourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "TaskQueue-0.1.0-sources.jar",
+          "url": "TaskQueue-0.1.0-sources.jar",
+          "size": 47625,
+          "sha512": "56d35592388082601c8b290f921cbe9e763925e30bf7ec13d79f7ceca5f49f0dc8f466a96cd72dfd3145f38eaf2fae33d60b18d8ff9dfaa610ceb927caca217d",
+          "sha256": "c7504d7d46d6c236c369fca1589e614a94ecf9b8bc8631b4443614bd7d691e19",
+          "sha1": "8fba7d1dcb87284da9914ab69122b501c868dfe1",
+          "md5": "4bbdf609da5b6135b6b179996f88451f"
+        }
+      ]
+    }
+  ]
+}
