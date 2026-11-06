@@ -25,7 +25,8 @@ import kotlin.time.Duration
 /**
  * 串行任务队列。
  *
- * 任务按优先级降序出队，同优先级按入队顺序（FIFO）执行，同一时刻至多一个任务在跑。
+ * 任务按优先级降序出队，同优先级按入队顺序（FIFO）执行，工作循环至多执行一个任务。
+ * 满容量的 [RejectionPolicy.CALLER_RUNS] 会额外在调用线程执行，不受串行限制或 [pause] 控制。
  *
  * ```kotlin
  * val queue = SerialTaskQueue(scope)
@@ -302,7 +303,7 @@ class SerialTaskQueue(
                 discardedTask?.let { victim ->
                     executionContext.notifyAndRefresh(
                         action = {
-                            victim.updateState(TaskState.Cancelled)
+                            victim.notifyCancellation()
                             backpressureConfig.onDiscarded?.invoke(victim, task)
                         },
                         refresh = ::notifyPendingPositions,
@@ -504,6 +505,7 @@ class SerialTaskQueue(
      *
      * 取消当前正在执行的任务，并阻止工作循环取出后续任务。
      * 被取消的任务不会自动重新入队；等待中的任务原样保留，[resume] 后继续。
+     * [RejectionPolicy.CALLER_RUNS] 的就地执行不受暂停控制。
      */
     fun pause() {
         if (isShutdown.get()) return
@@ -550,7 +552,7 @@ class SerialTaskQueue(
 
         try {
             executionContext.notifyAndRefresh(
-                action = { removed.updateState(TaskState.Cancelled) },
+                action = { removed.notifyCancellation() },
                 refresh = ::notifyPendingPositions,
             )
         } finally {
@@ -627,6 +629,7 @@ class SerialTaskQueue(
                             admissionFailure = duplicate
                             throw duplicate
                         }
+                        task.prepareForEnqueue()
                         callerJobs[task] = job
                         true
                     }
@@ -638,10 +641,7 @@ class SerialTaskQueue(
                 job.invokeOnCompletion {
                     try {
                         if (job.isCancelled) {
-                            task.cancel()
-                            if (task.currentState !is TaskState.Cancelled) executionContext.notify {
-                                task.updateState(TaskState.Cancelled)
-                            }
+                            executionContext.notify { task.notifyCancellation() }
                         }
                     } finally {
                         queueLock.withLock {
@@ -673,6 +673,7 @@ class SerialTaskQueue(
 
     /** 必须在持有 [queueLock] 时调用。 */
     private fun doEnqueue(task: Task<*>) {
+        task.prepareForEnqueue()
         task.sequence = sequenceCounter.getAndIncrement()
         taskQueue.offer(task)
     }
@@ -804,7 +805,7 @@ class SerialTaskQueue(
         var failure = dispatchFailure
         task.cancel()
         try {
-            executionContext.notify { task.updateState(TaskState.Cancelled) }
+            executionContext.notify { task.notifyCancellation() }
         } catch (notificationFailure: Throwable) {
             failure = combineTaskFailures(failure, notificationFailure)
         } finally {
@@ -836,10 +837,7 @@ class SerialTaskQueue(
         job.invokeOnCompletion {
             try {
                 if (job.isCancelled) {
-                    task.cancel()
-                    if (task.currentState !is TaskState.Cancelled) {
-                        executionContext.notify { task.updateState(TaskState.Cancelled) }
-                    }
+                    executionContext.notify { task.notifyCancellation() }
                 }
             } finally {
                 queueLock.withLock {

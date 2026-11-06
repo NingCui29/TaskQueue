@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.security.MessageDigest
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -12,6 +13,7 @@ version = "0.1.0"
 java {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
+    withSourcesJar()
 }
 
 kotlin {
@@ -31,10 +33,102 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
 }
 
+// 核心不依赖平台，直接将同一份 JVM JAR 封装为 AAR，不重复编译。
+val androidAar by tasks.registering(Zip::class) {
+    archiveExtension.set("aar")
+    archiveFileName.set("TaskQueue-android-${project.version}.aar")
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
+    from(tasks.jar.flatMap { it.archiveFile }) { rename { "classes.jar" } }
+    from("packaging/android")
+    from("LICENSE") { into("META-INF") }
+}
+
+tasks.withType<AbstractArchiveTask>().configureEach {
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
+tasks.withType<Jar>().configureEach {
+    from("LICENSE") { into("META-INF") }
+}
+
 publishing {
     publications {
         create<MavenPublication>("library") {
             from(components["java"])
         }
+        create<MavenPublication>("android") {
+            from(components["java"])
+            artifactId = "TaskQueue-android"
+            setArtifacts(listOf(androidAar, tasks.named("sourcesJar")))
+        }
+        withType<MavenPublication>().configureEach {
+            pom {
+                name.set(artifactId)
+                description.set("基于 Kotlin 协程的任务队列，支持优先级调度、背压控制和生命周期回调")
+                url.set("https://github.com/NingCui29/TaskQueue")
+                licenses {
+                    license {
+                        name.set("MIT License")
+                        url.set("https://opensource.org/license/mit")
+                    }
+                }
+                developers {
+                    developer { id.set("NingCui29"); name.set("Cuining") }
+                }
+                scm {
+                    connection.set("scm:git:https://github.com/NingCui29/TaskQueue.git")
+                    developerConnection.set("scm:git:ssh://git@github.com/NingCui29/TaskQueue.git")
+                    url.set("https://github.com/NingCui29/TaskQueue")
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = "release"
+            url = layout.buildDirectory.dir("maven-repository").get().asFile.toURI()
+        }
+    }
+}
+
+// Android 发布物是 AAR，不使用 Java 组件生成的 JAR 变体元数据。
+tasks.withType<GenerateModuleMetadata>().configureEach {
+    if (name == "generateMetadataFileForAndroidPublication") enabled = false
+}
+
+val mavenRepositoryZip by tasks.registering(Zip::class) {
+    dependsOn("publishAllPublicationsToReleaseRepository")
+    archiveFileName.set("TaskQueue-${project.version}-maven-repository.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("release"))
+    from(layout.buildDirectory.dir("maven-repository"))
+}
+
+val stageRelease by tasks.registering(Copy::class) {
+    dependsOn("publishAllPublicationsToReleaseRepository")
+    into(layout.buildDirectory.dir("release"))
+    from(tasks.jar.flatMap { it.archiveFile })
+    from(tasks.named<Jar>("sourcesJar").flatMap { it.archiveFile })
+    from(androidAar.flatMap { it.archiveFile })
+    from(layout.buildDirectory.file("publications/library/pom-default.xml")) {
+        rename { "TaskQueue-${project.version}.pom" }
+    }
+    from(layout.buildDirectory.file("publications/android/pom-default.xml")) {
+        rename { "TaskQueue-android-${project.version}.pom" }
+    }
+    from("LICENSE", "CHANGELOG.md")
+}
+
+tasks.register("releaseBundle") {
+    group = "distribution"
+    description = "构建 JAR、AAR、源码包、Maven 仓库和 SHA-256 校验文件。"
+    dependsOn(stageRelease, mavenRepositoryZip)
+    doLast {
+        val directory = layout.buildDirectory.dir("release").get().asFile
+        val entries = directory.listFiles()!!.filter { it.isFile && it.name != "SHA256SUMS.txt" }.sortedBy { it.name }
+        directory.resolve("SHA256SUMS.txt").writeText(entries.joinToString("\n", postfix = "\n") { file ->
+            val hash = MessageDigest.getInstance("SHA-256").digest(file.readBytes()).joinToString("") { "%02x".format(it) }
+            "$hash  ${file.name}"
+        })
     }
 }

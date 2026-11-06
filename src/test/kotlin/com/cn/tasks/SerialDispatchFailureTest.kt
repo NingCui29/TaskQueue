@@ -135,7 +135,7 @@ class SerialDispatchFailureTest {
             assertTrue(reserved.isCancelled)
             assertEquals(TaskState.Cancelled, reserved.currentState)
             assertEquals(1, cancellations)
-            assertEquals(0, completions)
+            assertEquals(1, completions)
             assertEquals(TaskState.Completed(true), remaining.currentState)
             assertEquals(0, queue.pendingCount)
             assertEquals(0, queue.runningTaskCount)

@@ -301,7 +301,7 @@ class ConcurrentTaskQueue(
                 discardedTask?.let { victim ->
                     executionContext.notifyAndRefresh(
                         action = {
-                            victim.updateState(TaskState.Cancelled)
+                            victim.notifyCancellation()
                             backpressureConfig.onDiscarded?.invoke(victim, task)
                         },
                         refresh = ::notifyPendingPositions,
@@ -523,7 +523,7 @@ class ConcurrentTaskQueue(
             try {
                 pending?.let {
                     executionContext.notifyAndRefresh(
-                        action = { it.updateState(TaskState.Cancelled) },
+                        action = { it.notifyCancellation() },
                         refresh = ::notifyPendingPositions,
                     )
                 }
@@ -626,6 +626,7 @@ class ConcurrentTaskQueue(
                             admissionFailure = duplicate
                             throw duplicate
                         }
+                        task.prepareForEnqueue()
                         runningJobs[task.id] = job
                         activeCount.incrementAndGet()
                         true
@@ -638,10 +639,7 @@ class ConcurrentTaskQueue(
                 job.invokeOnCompletion {
                     try {
                         if (job.isCancelled) {
-                            task.cancel()
-                            if (task.currentState !is TaskState.Cancelled) executionContext.notify {
-                                task.updateState(TaskState.Cancelled)
-                            }
+                            executionContext.notify { task.notifyCancellation() }
                         }
                     } finally {
                         runningJobs.remove(task.id, job)
@@ -671,6 +669,7 @@ class ConcurrentTaskQueue(
 
     /** 必须在持有 [queueLock] 时调用。 */
     private fun doEnqueue(task: Task<*>) {
+        task.prepareForEnqueue()
         task.sequence = sequenceCounter.getAndIncrement()
         taskQueue.offer(task)
     }
@@ -805,7 +804,7 @@ class ConcurrentTaskQueue(
         var failure = dispatchFailure
         task.cancel()
         try {
-            executionContext.notify { task.updateState(TaskState.Cancelled) }
+            executionContext.notify { task.notifyCancellation() }
         } catch (notificationFailure: Throwable) {
             failure = combineTaskFailures(failure, notificationFailure)
         } finally {
@@ -843,7 +842,7 @@ class ConcurrentTaskQueue(
             val cancelledBeforeStart = queueLock.withLock { generation != cancellationGeneration }
             if (task.isCancelled || isShutdown.get() || cancelledBeforeStart) {
                 task.cancel()
-                executionContext.notify { task.updateState(TaskState.Cancelled) }
+                executionContext.notify { task.notifyCancellation() }
                 return@launch
             }
             task.execute()
@@ -863,10 +862,7 @@ class ConcurrentTaskQueue(
         job.invokeOnCompletion {
             try {
                 if (job.isCancelled) {
-                    task.cancel()
-                    if (task.currentState !is TaskState.Cancelled) {
-                        executionContext.notify { task.updateState(TaskState.Cancelled) }
-                    }
+                    executionContext.notify { task.notifyCancellation() }
                 }
             } finally {
                 activeCount.decrementAndGet()

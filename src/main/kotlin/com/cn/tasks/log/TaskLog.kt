@@ -1,5 +1,7 @@
 package com.cn.tasks.log
 
+import kotlinx.coroutines.CancellationException
+
 /**
  * 队列内部诊断输出的接缝。
  *
@@ -24,7 +26,10 @@ object TaskLog {
     /** 未显式传入标签时使用的默认标签。 */
     const val DEFAULT_TAG = "TaskQueue"
 
-    /** 日志输出端。默认丢弃，宿主可替换为 logcat、文件或远端上报。 */
+    /**
+     * 日志输出端。默认丢弃，宿主可替换为 logcat、文件或远端上报。
+     * 输出端的普通异常会被隔离；取消异常与致命错误仍向上传播。
+     */
     fun interface Printer {
         fun print(priority: Int, tag: String, message: String, throwable: Throwable?)
     }
@@ -71,6 +76,12 @@ object TaskLog {
 
     @PublishedApi
     internal fun print(priority: Int, tag: String, message: String, throwable: Throwable?) {
-        printer.print(priority, tag, message, throwable)
+        try {
+            printer.print(priority, tag, message, throwable)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // 诊断输出失败不能改变任务结果；此处不能再调用日志，以免递归失败。
+        }
     }
 }

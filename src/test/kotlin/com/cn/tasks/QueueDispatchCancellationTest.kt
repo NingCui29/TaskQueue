@@ -185,7 +185,7 @@ class QueueDispatchCancellationTest {
                     assertEquals(scenario, 0, reservedRuns)
                     assertEquals(scenario, TaskState.Cancelled, reserved.currentState)
                     assertEquals(scenario, 1, cancellations)
-                    assertEquals("The reservation never entered execute: $scenario", 0, completions)
+                    assertEquals("Accepted reservations complete even without entering execute: $scenario", 1, completions)
                     assertEquals(scenario, listOf("remaining"), events)
                     assertEquals(scenario, TaskState.Completed(true), remaining.currentState)
                     assertEquals(scenario, 0, runningCount())

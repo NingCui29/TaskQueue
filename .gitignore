@@ -1,6 +1,56 @@
+# Gradle、Kotlin 和 Android 构建产物（包含嵌套工程）。
 .gradle/
 .kotlin/
 build/
+.externalNativeBuild/
+.cxx/
+out/
+
+# IDE 与本机配置。
 .idea/
+.vscode/
 *.iml
+*.ipr
+*.iws
 local.properties
+
+# 本地环境与发布凭据；保留可共享的配置示例。
+.env
+.env.*
+*.env
+!.env.example
+!.env.sample
+credentials.properties
+*-credentials.properties
+credentials.json
+secrets.properties
+publishing.properties
+publish.properties
+
+# 签名材料不得提交到版本控制。
+keystore.properties
+signing.properties
+key.properties
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+
+# 生成的依赖包和 Android 安装包通过 Release 分发。
+*.jar
+*.apk
+*.aab
+*.aar
+*.apks
+*.idsig
+*.hprof
+
+# Gradle Wrapper 是构建所需文件，必须纳入版本控制。
+!gradle/wrapper/gradle-wrapper.jar
+
+# 操作系统元数据。
+.DS_Store
+Thumbs.db
+Desktop.ini

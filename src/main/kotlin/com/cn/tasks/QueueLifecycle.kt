@@ -25,7 +25,7 @@ internal fun observeOwnerCancellation(scope: CoroutineScope, onClosed: () -> Uni
 
 internal fun cancelOwnedTasks(jobs: List<Job>, tasks: List<Task<*>>) {
     var failure: Throwable? = null
-    val actions = jobs.map { job -> { job.cancel() } } + tasks.map { task -> { task.updateState(TaskState.Cancelled) } }
+    val actions = jobs.map { job -> { job.cancel() } } + tasks.map { task -> { task.notifyCancellation() } }
     actions.forEach { action ->
         try {
             action()

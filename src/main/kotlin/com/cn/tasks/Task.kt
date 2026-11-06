@@ -50,6 +50,10 @@ import kotlin.time.Duration.Companion.milliseconds
  * 取消属于协程作用域事件而非任务结果，重抛才能让承载它的 `Job` 正确进入取消态。
  * 调用方需自行 `try/catch`，队列实现已按此契约处理。
  *
+ * 队列已接纳的任务在结束时通知一次 [onComplete]，包括执行前取消或被淘汰。
+ * 执行中取消会等待任务体的清理退出；未接纳的拒绝以及 [SerialTaskQueue.clear] 不通知。
+ * 同一实例只能有一个在途提交；复用须等待上一轮执行及回调全部退出，不能跨队列同时提交。
+ *
  * @param T 执行结果类型
  * @param id 唯一标识，默认随机 UUID
  * @param name 任务名，用于日志与调试
@@ -58,7 +62,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * @param block 任务体，入参为 [ProgressReporter]
  * @param onSuccess 成功回调
  * @param onError 失败回调（含超时；不含取消）
- * @param onComplete 终态回调，成功、失败、取消均会触发
+ * @param onComplete 已接纳任务的结束回调，成功、失败、取消均触发一次；执行中取消等待清理结束
  * @param onStateChange 状态变化回调
  * @param onTimeout 本次执行的配置超时回调，触发时机早于 [onError]；下游超时异常只交付 [onError]
  *
@@ -108,6 +112,23 @@ class Task<T>(
     private var _currentState: TaskState = TaskState.Pending()
 
     private var pendingStateVersion = 0L
+
+    /** 每次接纳独立持有通知门闩，旧回调退出不能覆盖新一轮的完成记录。由 stateLock 保护。 */
+    private class CompletionAttempt {
+        var executionStarted = false
+        var completionClaimed = false
+    }
+
+    private var completionAttempt = CompletionAttempt()
+
+    /** 在队列锁内接纳任务时调用，不执行外部回调。 */
+    internal fun prepareForEnqueue() {
+        synchronized(stateLock) {
+            completionAttempt = CompletionAttempt()
+            pendingStateVersion++
+            if (!cancelled.get()) _currentState = TaskState.Pending()
+        }
+    }
 
     /** 当前状态快照。 */
     val currentState: TaskState
@@ -198,6 +219,17 @@ class Task<T>(
      * @throws CancellationException 任务被取消，或承载协程被取消
      */
     internal suspend fun execute(): Result<T> {
+        val attempt = synchronized(stateLock) {
+            val previous = completionAttempt
+            if (previous.completionClaimed && !previous.executionStarted) {
+                // 执行前取消已交付结束通知，迟到的派发不能再次执行或通知。
+                throw CancellationException("Task '$name' was cancelled before execution")
+            }
+            // execute 也用于内部直接执行；保留同一任务顺序执行多次的行为。
+            val next = if (previous.completionClaimed) CompletionAttempt().also { completionAttempt = it } else previous
+            next.executionStarted = true
+            next
+        }
         var executionFailure: Throwable? = null
         try {
             return executeCore()
@@ -207,11 +239,51 @@ class Task<T>(
         } finally {
             // 退出通知仍只执行一次；其失败不能覆盖正在传播的致命错误。
             try {
-                runCallback("onComplete") { onComplete?.invoke() }
+                completeOnce(attempt)
             } catch (completionFailure: Throwable) {
                 throw executionFailure?.let { combineTaskFailures(it, completionFailure) } ?: completionFailure
             }
         }
+    }
+
+    /**
+     * 终结已接纳任务的取消。执行与取消在同一锁内决定结束通知归属，回调全部在锁外。
+     * 已开始的任务由 execute.finally 通知；尚未开始的任务即使状态回调失败也通知完成。
+     */
+    internal fun notifyCancellation() {
+        val notifyCompletion = synchronized(stateLock) {
+            cancelled.set(true)
+            val attempt = completionAttempt
+            if (!attempt.executionStarted && !attempt.completionClaimed) {
+                attempt.completionClaimed = true
+                true
+            } else false
+        }
+        var notificationFailure: Throwable? = null
+        try {
+            updateState(TaskState.Cancelled)
+        } catch (failure: Throwable) {
+            notificationFailure = failure
+            throw failure
+        } finally {
+            if (notifyCompletion) {
+                try {
+                    runCallback("onComplete") { onComplete?.invoke() }
+                } catch (completionFailure: Throwable) {
+                    throw notificationFailure?.let { combineTaskFailures(it, completionFailure) } ?: completionFailure
+                }
+            }
+        }
+    }
+
+    private fun completeOnce(attempt: CompletionAttempt) {
+        val claimed = synchronized(stateLock) {
+            if (attempt.completionClaimed) false else {
+                attempt.completionClaimed = true
+                true
+            }
+        }
+        if (claimed) runCallback("onComplete") { onComplete?.invoke() }
     }
 
     /** 执行业务及结果通知，保留取消状态回调的既有异常传播顺序。 */

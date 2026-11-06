@@ -32,7 +32,7 @@ package com.cn.tasks
  * 属性，而函数对象按引用比较——两份配置即便策略与容量完全相同，只要各自传入了 lambda
  * 就不相等。该类型仅用于配置传递，不应作为 Map 键或参与去重。
  *
- * @param maxCapacity 队列最大容量，默认 [DEFAULT_CAPACITY]；取 [UNBOUNDED] 表示不限容
+ * @param maxCapacity 等待任务容量（不含运行任务），默认 [DEFAULT_CAPACITY]；取 [UNBOUNDED] 表示不限容
  * @param policy 拒绝策略，默认 [RejectionPolicy.DISCARD_OLDEST]
  * @param onRejected 任务被拒绝时回调，参数为被拒任务与原因
  * @param onDiscarded 淘汰旧任务时回调，参数为被淘汰任务与新任务

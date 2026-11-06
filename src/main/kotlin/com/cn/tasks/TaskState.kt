@@ -111,7 +111,7 @@ interface TaskCallback<T> {
     /** 执行失败（含超时）。 */
     fun onError(error: Throwable) {}
 
-    /** 执行结束，无论成功、失败还是取消都会回调。 */
+    /** 已接纳任务结束时回调一次，含执行前取消；执行中取消等待清理结束。拒绝与 clear 不回调。 */
     fun onComplete() {}
 }
 
