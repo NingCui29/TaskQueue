@@ -6,7 +6,7 @@
   <version>0.1.0</version>
   <packaging>aar</packaging>
   <name>TaskQueue-android</name>
-  <description>Kotlin coroutine task queues with priority scheduling, backpressure and lifecycle callbacks</description>
+  <description>基于 Kotlin 协程的任务队列，支持优先级调度、背压控制和生命周期回调</description>
   <url>https://github.com/NingCui29/TaskQueue</url>
   <licenses>
     <license>
